@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
 import {
   User,
   UserRole,
@@ -13,6 +13,7 @@ import {
   EmergencyBroadcast,
   AuditLogEntry,
 } from "@/types";
+import { useAuth, type AuthIdentity } from "@/context/AuthContext";
 import { MOCK_ROADS } from "@/data/roads";
 import { MOCK_VEHICLES } from "@/data/vehicles";
 import { MOCK_SHIPMENTS } from "@/data/shipments";
@@ -54,6 +55,41 @@ export const DEMO_USERS: Record<UserRole, User> = {
     isPrivilegedVerified: true,
   },
 };
+
+/**
+ * Fallback persona for an anonymous visitor. sih previously booted with a
+ * hardcoded "logged in" demo user; the merged app keeps every component's
+ * `currentUser` contract intact but reports an explicit guest identity until a
+ * session actually exists.
+ */
+const GUEST_USER: User = {
+  id: "guest",
+  name: "Guest Operator",
+  organization: "Unauthenticated Session",
+  role: "Regular User",
+  email: "—",
+  isPrivilegedVerified: false,
+};
+
+/** Maps an auth identity onto sih's `User` domain object (single source of truth). */
+function identityToUser(identity: AuthIdentity): User {
+  const persona = DEMO_USERS[identity.role] ?? DEMO_USERS["Regular User"];
+  if (!identity.live) {
+    // Offline demo mode: keep sih's original personas verbatim.
+    return { ...persona, role: identity.role };
+  }
+  return {
+    id: identity.uid,
+    name: identity.displayName,
+    // Firebase carries no organisation claim; the role persona supplies the
+    // realistic departmental label used across the workspace UI.
+    organization: persona.organization,
+    role: identity.role,
+    email: identity.email ?? persona.email,
+    avatarUrl: identity.photoURL ?? undefined,
+    isPrivilegedVerified: identity.role === "Emergency Commander",
+  };
+}
 
 interface NotificationState {
   id: string;
@@ -141,11 +177,29 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  // Demo default user: Regular User (Logistics Operator)
-  const [currentUser, setCurrentUser] = useState<User>(DEMO_USERS["Regular User"]);
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
+  // ── Authentication is owned by AuthContext (Firebase) ──────────────────────
+  // AppContext stays the operational store it always was; it only *derives* the
+  // identity, so every existing `useApp()` consumer keeps working unchanged.
+  const { identity, isDemoMode, signInDemo, changeRole, signOutUser } = useAuth();
+
+  const currentUser: User = useMemo(
+    () => (identity ? identityToUser(identity) : GUEST_USER),
+    [identity]
+  );
+  const isLoggedIn = Boolean(identity);
   const [isPrivilegedVerified, setIsPrivilegedVerified] = useState<boolean>(false);
   const [activeEmergencySession, setActiveEmergencySession] = useState<boolean>(false);
+
+  // Privileged flags follow the (restored or freshly signed-in) identity, so a
+  // page reload keeps an Emergency Commander's session state consistent.
+  useEffect(() => {
+    if (!identity) {
+      setIsPrivilegedVerified(false);
+      setActiveEmergencySession(false);
+      return;
+    }
+    setIsPrivilegedVerified(identity.role === "Emergency Commander");
+  }, [identity]);
 
   // Navigation
   const [activeTab, setActiveTab] = useState<string>("overview");
@@ -269,23 +323,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setNotification(null);
   };
 
+  /**
+   * Role selection / persona login, kept as the single entry point used by the
+   * Login modal, the Analytics upgrade prompt and the Profile view.
+   *  • Offline demo mode  → signs in as the selected static persona.
+   *  • Live Firebase mode → switches the operational role for the session
+   *    (rejected when a directory custom claim pins the role).
+   */
   const login = (role: UserRole) => {
+    const result = isDemoMode ? signInDemo(role) : changeRole(role);
+
+    if (!result.success) {
+      showNotification(
+        isDemoMode ? "Authentication Failed" : "Role Change Blocked",
+        result.error ?? "The requested session could not be established.",
+        isDemoMode ? "error" : "warning"
+      );
+      return;
+    }
+
     const user = DEMO_USERS[role];
-    setCurrentUser(user);
-    setIsLoggedIn(true);
-    setIsPrivilegedVerified(user.isPrivilegedVerified);
     setActiveEmergencySession(user.isPrivilegedVerified && role === "Emergency Commander");
     showNotification(
       "Authenticated",
-      `Logged in as ${user.name} (${role}) — ${user.organization}`,
+      isDemoMode
+        ? `Logged in as ${user.name} (${role}) — ${user.organization}`
+        : `Session role set to ${role}${identity?.email ? ` — ${identity.email}` : ""}`,
       "success"
     );
   };
 
   const logout = () => {
-    setIsLoggedIn(false);
-    setIsPrivilegedVerified(false);
-    setActiveEmergencySession(false);
+    void signOutUser();
     showNotification("Signed Out", "Platform session closed.", "info");
   };
 

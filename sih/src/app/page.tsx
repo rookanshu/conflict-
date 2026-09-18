@@ -3,6 +3,8 @@
 import React from "react";
 import dynamic from "next/dynamic";
 import { AppProvider, useApp } from "@/context/AppContext";
+import { AuthProvider } from "@/context/AuthContext";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { Header } from "@/components/layout/Header";
@@ -37,7 +39,10 @@ function MainContent() {
     isDriverHudOpen,
     notification,
     dismissNotification,
+    setIsLoginModalOpen,
   } = useApp();
+
+  const requestSignIn = () => setIsLoginModalOpen(true);
 
   // Render view based on active navigation tab
   const renderActiveView = () => {
@@ -61,9 +66,22 @@ function MainContent() {
       case "field-reports":
         return <FieldReportsView />;
       case "emergency":
-        return <EmergencyOpsView />;
+        return (
+          <ProtectedRoute
+            tab="emergency"
+            requireAuth
+            label="Emergency Operations"
+            onRequestSignIn={requestSignIn}
+          >
+            <EmergencyOpsView />
+          </ProtectedRoute>
+        );
       case "analytics":
-        return <AnalyticsView />;
+        return (
+          <ProtectedRoute tab="analytics" label="Regional Analytics" onRequestSignIn={requestSignIn}>
+            <AnalyticsView />
+          </ProtectedRoute>
+        );
       case "profile":
         return <ProfileView />;
       default:
@@ -145,9 +163,11 @@ export default function Home() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
-        <AppProvider>
-          <MainContent />
-        </AppProvider>
+        <AuthProvider>
+          <AppProvider>
+            <MainContent />
+          </AppProvider>
+        </AuthProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );

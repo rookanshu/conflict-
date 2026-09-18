@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { LanguageCode } from "@/data/translations";
 import {
@@ -15,6 +16,7 @@ import {
   Shield,
   ShieldAlert,
   LogOut,
+  LogIn,
   ChevronDown,
   Sparkles,
   Layers,
@@ -22,13 +24,15 @@ import {
   MapPin,
   Sun,
   Moon,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 
 export function Header() {
   const { isDark, toggleTheme } = useTheme();
+  const { identity, status, isDemoMode, authNotice, clearAuthNotice } = useAuth();
   const {
     currentUser,
-    isLoggedIn,
     isPrivilegedVerified,
     activeEmergencySession,
     isOffline,
@@ -58,7 +62,24 @@ export function Header() {
   ];
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-3 sm:px-5 bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md">
+    <>
+      {/* Session notice (expired / policy) — dismissible, non-blocking */}
+      {authNotice && (
+        <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2 bg-amber-950/90 border-b border-amber-700 text-[11px] text-amber-200 z-30">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>{authNotice}</span>
+          </div>
+          <button
+            onClick={clearAuthNotice}
+            className="p-1 rounded hover:bg-black/30 shrink-0"
+            aria-label="Dismiss session notice"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+      <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-3 sm:px-5 bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md">
       {/* Left: Branding & Status Indicator */}
       <div className="flex items-center gap-3">
         <button
@@ -210,34 +231,74 @@ export function Header() {
         {/* User Account / Role Menu */}
         <div className="relative">
           <button
-            onClick={() => setShowUserMenu(!showUserMenu)}
+            onClick={() => {
+              if (!identity) {
+                setIsLoginModalOpen(true);
+                return;
+              }
+              setShowUserMenu(!showUserMenu);
+            }}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200"
+            title={identity ? "Account & session" : "Sign in"}
           >
-            <div className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-[10px] font-bold text-white">
-              {currentUser.name.charAt(0)}
-            </div>
+            {identity?.photoURL ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={identity.photoURL}
+                alt=""
+                className="w-5 h-5 rounded-full object-cover border border-slate-600"
+              />
+            ) : (
+              <div className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-[10px] font-bold text-white">
+                {identity ? currentUser.name.charAt(0) : <LogIn className="w-3 h-3" />}
+              </div>
+            )}
             <span className="hidden sm:inline max-w-[100px] truncate text-slate-200 text-[11px]">
-              {currentUser.name.split(" ")[0]}
+              {identity ? currentUser.name.split(" ")[0] : "Sign In"}
             </span>
-            <ChevronDown className="w-3 h-3 text-slate-500" />
+            {identity && <ChevronDown className="w-3 h-3 text-slate-500" />}
+            {status === "restoring" && (
+              <span className="hidden md:inline text-[10px] text-slate-500">restoring…</span>
+            )}
           </button>
 
           {showUserMenu && (
             <div className="absolute right-0 mt-1 w-64 p-3 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-50 text-xs">
               <div className="pb-2 border-b border-slate-800">
-                <div className="font-bold text-white truncate">{currentUser.name}</div>
-                <div className="text-[11px] text-slate-400 truncate">{currentUser.organization}</div>
-                <div className="mt-1 flex items-center gap-1.5">
+                <div className="font-bold text-white truncate">
+                  {identity ? currentUser.name : "Not signed in"}
+                </div>
+                <div className="text-[11px] text-slate-400 truncate">
+                  {identity ? (identity.email ?? currentUser.organization) : "Public monitor mode"}
+                </div>
+                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-700">
-                    {currentUser.role}
+                    {identity ? identity.role : "Guest"}
                   </span>
-                  {isPrivilegedVerified ? (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 flex items-center gap-1">
-                      <Shield className="w-2.5 h-2.5" /> Verified
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-                      Standard
+                  {identity &&
+                    (isPrivilegedVerified ? (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 flex items-center gap-1">
+                        <Shield className="w-2.5 h-2.5" /> Verified
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
+                        Standard
+                      </span>
+                    ))}
+                  {identity && (
+                    <span
+                      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                        identity.live
+                          ? "bg-emerald-950/70 text-emerald-300 border-emerald-800"
+                          : "bg-amber-950/70 text-amber-300 border-amber-800"
+                      }`}
+                      title={
+                        identity.live
+                          ? "Authenticated with Firebase"
+                          : "Offline demo persona (Firebase not configured)"
+                      }
+                    >
+                      {identity.live ? "LIVE AUTH" : "DEMO"}
                     </span>
                   )}
                 </div>
@@ -245,7 +306,7 @@ export function Header() {
 
               {/* Actions */}
               <div className="pt-2 flex flex-col gap-1">
-                {!isPrivilegedVerified && (
+                {identity && !isPrivilegedVerified && (
                   <button
                     onClick={() => {
                       setShowUserMenu(false);
@@ -266,25 +327,27 @@ export function Header() {
                   className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-800 text-slate-300 flex items-center gap-2"
                 >
                   <User className="w-3.5 h-3.5" />
-                  <span>Switch Demo User</span>
+                  <span>{isDemoMode ? "Switch Demo User" : "Switch Operational Role"}</span>
                 </button>
 
-                <button
-                  onClick={() => {
-                    setShowUserMenu(false);
-                    logout();
-                    setIsLoginModalOpen(true);
-                  }}
-                  className="w-full text-left px-2 py-1.5 rounded hover:bg-red-950/50 text-red-400 flex items-center gap-2 mt-1 border-t border-slate-800 pt-2"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Sign Out</span>
-                </button>
+                {identity && (
+                  <button
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      logout();
+                    }}
+                    className="w-full text-left px-2 py-1.5 rounded hover:bg-red-950/50 text-red-400 flex items-center gap-2 mt-1 border-t border-slate-800 pt-2"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Sign Out</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
         </div>
       </div>
-    </header>
+      </header>
+    </>
   );
 }
