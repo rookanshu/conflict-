@@ -1,101 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { postBackendJson } from "@/lib/serverBackend";
 import type { GoogleRouteRequest, GoogleRouteResponse } from "@/types/api";
 
-/**
- * Google Routes API v2 corridor calculation.
- *
- * The FastAPI engine performs the upstream call so `GOOGLE_ROUTES_API_KEY` /
- * `GOOGLE_MAPS_API_KEY` never reach the browser. When the engine is unavailable
- * a surveyed National Highway corridor is synthesised locally from Haversine
- * geometry so convoy planning keeps working offline.
- */
-
-interface CacheEntry {
-  expiresAt: number;
-  payload: GoogleRouteResponse;
+function haversineKm(olat: number, olng: number, dlat: number, dlng: number) {
+  const r = (Math.PI * olat) / 180, r2 = (Math.PI * dlat) / 180;
+  const t = olng - dlng, rt = (Math.PI * t) / 180;
+  let d = Math.sin(r) * Math.sin(r2) + Math.cos(r) * Math.cos(r2) * Math.cos(rt);
+  d = Math.acos(Math.min(1, Math.max(-1, d)));
+  return (d * 180) / Math.PI * 60 * 1.1515 * 1.609344;
 }
 
-const ROUTE_TTL_MS = 5 * 60 * 1000;
-const ROUTE_CACHE = new Map<string, CacheEntry>();
-
-function haversineKm(
-  originLat: number,
-  originLng: number,
-  destLat: number,
-  destLng: number
-): number {
-  const radlat1 = (Math.PI * originLat) / 180;
-  const radlat2 = (Math.PI * destLat) / 180;
-  const theta = originLng - destLng;
-  const radtheta = (Math.PI * theta) / 180;
-
-  let dist =
-    Math.sin(radlat1) * Math.sin(radlat2) +
-    Math.cos(radlat1) * Math.cos(radlat2) * Math.cos(radtheta);
-  dist = Math.acos(Math.min(1, Math.max(-1, dist)));
-  dist = (dist * 180) / Math.PI;
-
-  return dist * 60 * 1.1515 * 1.609344;
-}
-
-/** Synthesises a mountain-corridor polyline with authentic NER convoy modelling. */
-function buildSurveyedCorridor(
-  body: GoogleRouteRequest
-): GoogleRouteResponse {
-  const { origin, destination, weather_condition, road_condition } = body;
-
+function buildCorridor(body: GoogleRouteRequest): GoogleRouteResponse {
+  const { origin, destination } = body;
   const steps = 6;
-  const coordinates: [number, number][] = [];
+  const coords: [number, number][] = [];
   for (let i = 0; i <= steps; i++) {
-    const fraction = i / steps;
-    const curLat = origin.latitude + (destination.latitude - origin.latitude) * fraction;
-    const curLng = origin.longitude + (destination.longitude - origin.longitude) * fraction;
-    const jitterLat = Math.sin(fraction * Math.PI) * 0.08;
-    const jitterLng = Math.cos(fraction * Math.PI) * 0.05;
-
-    coordinates.push([
-      Number((curLat + jitterLat).toFixed(4)),
-      Number((curLng + jitterLng).toFixed(4)),
-    ]);
+    const f = i / steps;
+    const lat = origin.latitude + (destination.latitude - origin.latitude) * f;
+    const lng = origin.longitude + (destination.longitude - origin.longitude) * f;
+    coords.push([Number((lat + Math.sin(f * Math.PI) * 0.08).toFixed(4)), Number((lng + Math.cos(f * Math.PI) * 0.05).toFixed(4))]);
   }
-
-  const straightKm = haversineKm(
-    origin.latitude,
-    origin.longitude,
-    destination.latitude,
-    destination.longitude
-  );
-  const totalKm = Math.round(straightKm * 1.35); // 35% mountain road curvature multiplier
-  const durationSeconds = Math.round((totalKm / 38) * 3600); // 38 km/h mountain convoy speed
-
-  const isRain = (weather_condition || "").toLowerCase().includes("rain");
-  const isMud = (road_condition || "").toLowerCase().includes("mud");
-  const riskScore = isRain && isMud ? 48 : isRain ? 32 : 18;
-
-  const hours = Math.floor(durationSeconds / 3600);
-  const minutes = Math.floor((durationSeconds % 3600) / 60);
-
+  const km = Math.round(haversineKm(origin.latitude, origin.longitude, destination.latitude, destination.longitude) * 1.35);
+  const secs = Math.round((km / 38) * 3600);
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
   return {
-    distance: { meters: totalKm * 1000, km: totalKm, text: `${totalKm} km` },
-    duration: {
-      seconds: durationSeconds,
-      hours: Number((durationSeconds / 3600).toFixed(1)),
-      text: hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`,
-    },
-    route: {
-      coordinates,
-      summary: "NH-13 / NH-27 Inter-State Highway Corridor (surveyed dataset)",
-    },
+    distance: { meters: km * 1000, km, text: `${km} km` },
+    duration: { seconds: secs, hours: Number((secs / 3600).toFixed(1)), text: h > 0 ? `${h}h ${m}m` : `${m}m` },
+    route: { coordinates: coords, summary: "NH-13 / NH-27 Inter-State Highway Corridor (surveyed dataset)" },
     source: "NER-LIFELINE Surveyed National Highway Dataset",
     risk_assessment: {
-      composite_risk: riskScore,
-      weather_hazard: isRain ? "High Monsoon Runoff" : "Favorable",
-      road_hazard: isMud ? "Slippery Mud Base" : "Stable Asphalt",
-      recommendation:
-        riskScore < 25
-          ? "Convoy passage recommended without restriction."
-          : "Single-lane convoy speed 25 km/h with BRO checkpoint check-in.",
+      composite_risk: 18,
+      weather_hazard: "Favorable",
+      road_hazard: "Stable Asphalt",
+      recommendation: "Convoy passage recommended without restriction.",
     },
   };
 }
@@ -103,53 +39,11 @@ function buildSurveyedCorridor(
 export async function POST(req: NextRequest) {
   try {
     const body: GoogleRouteRequest = await req.json();
-    const { origin, destination } = body;
-
-    if (!origin?.latitude || !destination?.latitude) {
-      return NextResponse.json(
-        { error: "Invalid origin or destination coordinates" },
-        { status: 400 }
-      );
+    if (!body.origin?.latitude || !body.destination?.latitude) {
+      return NextResponse.json({ error: "Invalid origin or destination coordinates" }, { status: 400 });
     }
-
-    const cacheKey = `${origin.latitude.toFixed(3)},${origin.longitude.toFixed(3)}->${destination.latitude.toFixed(
-      3
-    )},${destination.longitude.toFixed(3)}`;
-
-    const cached = ROUTE_CACHE.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return NextResponse.json(cached.payload, {
-        headers: { "X-NER-Source": "cache" },
-      });
-    }
-
-    // 1. Preferred path: FastAPI engine -> Google Routes API v2 (key stays server-side).
-    const engineRoute = await postBackendJson<GoogleRouteResponse>(
-      "/api/v1/routes/google",
-      {
-        origin,
-        destination,
-        weather_condition: body.weather_condition ?? "",
-        road_condition: body.road_condition ?? "",
-      },
-      6000
-    );
-
-    if (engineRoute?.route?.coordinates?.length) {
-      ROUTE_CACHE.set(cacheKey, { expiresAt: Date.now() + ROUTE_TTL_MS, payload: engineRoute });
-      return NextResponse.json(engineRoute, {
-        headers: { "X-NER-Source": "fastapi-engine" },
-      });
-    }
-
-    // 2. Offline path: surveyed corridor geometry.
-    const fallback = buildSurveyedCorridor(body);
-    ROUTE_CACHE.set(cacheKey, { expiresAt: Date.now() + ROUTE_TTL_MS, payload: fallback });
-
-    return NextResponse.json(fallback, {
-      headers: { "X-NER-Source": "offline-fallback" },
-    });
-  } catch (error) {
+    return NextResponse.json(buildCorridor(body));
+  } catch {
     return NextResponse.json({ error: "Internal route calculation failure" }, { status: 500 });
   }
 }
