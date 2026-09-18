@@ -3,9 +3,12 @@
 import React from "react";
 import dynamic from "next/dynamic";
 import { AppProvider, useApp } from "@/context/AppContext";
+import { AuthProvider } from "@/context/AuthContext";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { Header } from "@/components/layout/Header";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { MobileNav } from "@/components/layout/MobileNav";
 import { LandingModal } from "@/components/layout/LandingModal";
 import { LoginModal } from "@/components/modals/LoginModal";
@@ -26,14 +29,20 @@ const AlertsView = dynamic(() => import("@/components/views/AlertsView").then(m 
 const WeatherView = dynamic(() => import("@/components/views/WeatherView").then(m => ({ default: m.WeatherView })), { loading: () => <TacticalLoader message="Loading Weather..." /> });
 const FieldReportsView = dynamic(() => import("@/components/views/FieldReportsView").then(m => ({ default: m.FieldReportsView })), { loading: () => <TacticalLoader message="Loading Field Reports..." /> });
 const EmergencyOpsView = dynamic(() => import("@/components/views/EmergencyOpsView").then(m => ({ default: m.EmergencyOpsView })), { loading: () => <TacticalLoader message="Loading Emergency Ops..." /> });
+const AnalyticsView = dynamic(() => import("@/components/views/AnalyticsView").then(m => ({ default: m.AnalyticsView })), { loading: () => <TacticalLoader message="Loading Analytics..." /> });
 const ProfileView = dynamic(() => import("@/components/views/ProfileView").then(m => ({ default: m.ProfileView })), { loading: () => <TacticalLoader message="Loading Profile..." /> });
+const DriverHudView = dynamic(() => import("@/components/views/DriverHudView").then(m => ({ default: m.DriverHudView })), { loading: () => <TacticalLoader message="Loading Driver HUD..." />, ssr: false });
 
 function MainContent() {
   const {
     activeTab,
+    isDriverHudOpen,
     notification,
     dismissNotification,
+    setIsLoginModalOpen,
   } = useApp();
+
+  const requestSignIn = () => setIsLoginModalOpen(true);
 
   // Render view based on active navigation tab
   const renderActiveView = () => {
@@ -57,7 +66,22 @@ function MainContent() {
       case "field-reports":
         return <FieldReportsView />;
       case "emergency":
-        return <EmergencyOpsView />;
+        return (
+          <ProtectedRoute
+            tab="emergency"
+            requireAuth
+            label="Emergency Operations"
+            onRequestSignIn={requestSignIn}
+          >
+            <EmergencyOpsView />
+          </ProtectedRoute>
+        );
+      case "analytics":
+        return (
+          <ProtectedRoute tab="analytics" label="Regional Analytics" onRequestSignIn={requestSignIn}>
+            <AnalyticsView />
+          </ProtectedRoute>
+        );
       case "profile":
         return <ProfileView />;
       default:
@@ -70,9 +94,11 @@ function MainContent() {
       {/* Global Application Header */}
       <Header />
 
-      {/* Main operational workspace */}
+      {/* Body: Sidebar + Main Dynamic View */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative pb-14 lg:pb-0">
+        <Sidebar />
+
+        <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative pb-14 md:pb-0">
           {renderActiveView()}
         </main>
       </div>
@@ -85,6 +111,7 @@ function MainContent() {
       <LoginModal />
       <IdentityVerificationModal />
       <AiCopilotModal />
+      {isDriverHudOpen && <DriverHudView />}
 
       {/* System Toast Notification */}
       {notification && (
@@ -136,9 +163,11 @@ export default function Home() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
-        <AppProvider>
-          <MainContent />
-        </AppProvider>
+        <AuthProvider>
+          <AppProvider>
+            <MainContent />
+          </AppProvider>
+        </AuthProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );
