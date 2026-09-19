@@ -91,8 +91,9 @@ export interface AlternateRouteResponse {
   ai_alternate_route: RouteAlternative;
   comparison?: Record<string, unknown>;
   ai_advisory: string;
-  recommended_action: string;
+    recommended_action: string;
   voice_announcement: string;
+  live?: boolean;
 }
 
 export interface AlternateRouteRequest {

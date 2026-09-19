@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { GoogleRouteRequest, GoogleRouteResponse } from "@/types/api";
+import { liveRoute, env } from "@/lib/liveData";
 
 function haversineKm(olat: number, olng: number, dlat: number, dlng: number) {
   const r = (Math.PI * olat) / 180, r2 = (Math.PI * dlat) / 180;
-  const t = olng - dlng, rt = (Math.PI * t) / 180;
+    const t = dlng - olng, rt = (Math.PI * t) / 180;
   let d = Math.sin(r) * Math.sin(r2) + Math.cos(r) * Math.cos(r2) * Math.cos(rt);
   d = Math.acos(Math.min(1, Math.max(-1, d)));
   return (d * 180) / Math.PI * 60 * 1.1515 * 1.609344;
@@ -28,9 +29,7 @@ function buildCorridor(body: GoogleRouteRequest): GoogleRouteResponse {
     route: { coordinates: coords, summary: "NH-13 / NH-27 Inter-State Highway Corridor (surveyed dataset)" },
     source: "NER-LIFELINE Surveyed National Highway Dataset",
     risk_assessment: {
-      composite_risk: 18,
-      weather_hazard: "Favorable",
-      road_hazard: "Stable Asphalt",
+      composite_risk: 18, weather_hazard: "Favorable", road_hazard: "Stable Asphalt",
       recommendation: "Convoy passage recommended without restriction.",
     },
   };
@@ -42,6 +41,14 @@ export async function POST(req: NextRequest) {
     if (!body.origin?.latitude || !body.destination?.latitude) {
       return NextResponse.json({ error: "Invalid origin or destination coordinates" }, { status: 400 });
     }
+
+    /* ── Live: Google Routes API v2 (real corridors, distance, duration) ── */
+    if (env("GOOGLE_ROUTES_API_KEY")) {
+      const live = await liveRoute(body.origin, body.destination);
+      if (live) return NextResponse.json({ ...live, live: true });
+    }
+
+    /* ── Offline fallback: surveyed NH dataset ── */
     return NextResponse.json(buildCorridor(body));
   } catch {
     return NextResponse.json({ error: "Internal route calculation failure" }, { status: 500 });
