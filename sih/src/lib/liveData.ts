@@ -435,3 +435,60 @@ export async function liveBlockages(): Promise<BlockageInfo[] | null> {
 }
 
 // NEXUS
+
+/**
+ * Generic GET against the fleet backend for any collection resource
+ * (roads, incidents, shipments, bridges, emergency resources…).
+ * Returns the bare array when the backend answers, else null.
+ */
+export async function liveBackendCollection(path: string): Promise<unknown[] | null> {
+  if (!BACKEND) return null;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const key = env("FLEET_API_KEY");
+  if (key) headers["Authorization"] = `Bearer ${key}`;
+  try {
+    const res = await fetch(`${BACKEND}${path}`, { headers, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === "object") {
+      const wrapped = data as Record<string, unknown>;
+      for (const field of ["data", "results", "items", "roads", "incidents", "shipments", "bridges", "resources"]) {
+        if (Array.isArray(wrapped[field])) return wrapped[field] as unknown[];
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fleet telemetry mapped back onto the UI's AIS-140 `Vehicle` domain shape.
+ * Used by /api/fleet so the dashboard consumes one stable contract whether the
+ * backend is live or the curated offline registry is serving.
+ */
+export async function liveDomainFleet(): Promise<import("@/types").Vehicle[] | null> {
+  const fleet = await liveFleet();
+  if (!fleet) return null;
+  return fleet.vehicles.map((item) => ({
+    id: item.vehicle_number,
+    plateNumber: item.vehicle_number,
+    cargo: item.cargo_manifest ?? "General cargo",
+    cargoType: (item.vehicle_type as import("@/types").Vehicle["cargoType"]) ?? "General",
+    origin: item.state ?? "NER Hub",
+    destination: item.destination ?? "Unknown",
+    status: (item.status as import("@/types").Vehicle["status"]) ?? (item.is_in_transit ? "moving" : "stopped"),
+    speedKmH: item.speed_kmh ?? 0,
+    distanceRemainingKm: 0,
+    eta: "—",
+    roadCondition: item.current_road ?? "Unknown",
+    riskScore: (item.fuel_percentage ?? 0) < 20 ? 65 : 25,
+    lastGpsUpdate: item.last_ping ?? "Just now",
+    coordinates: [item.lat, item.lng] as [number, number],
+    routeCoordinates: [[item.lat, item.lng], [item.lat, item.lng]] as [number, number][],
+    currentWaypointIndex: 0,
+    driverName: item.driver_name ?? "Unassigned",
+    driverPhone: item.driver_phone ?? "—",
+  }));
+}

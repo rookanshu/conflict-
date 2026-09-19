@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { MOCK_WEATHER } from "@/data/weather";
 import { WeatherData } from "@/types";
+import { useLiveData, formatSyncClock } from "@/lib/useLiveData";
 import {
   CloudRain,
   Wind,
@@ -15,32 +16,20 @@ import {
   MapPin,
   Clock,
   Layers,
+  RefreshCw,
 } from "lucide-react";
 
 export function WeatherView() {
   const { focusOnLocation, setActiveTab } = useApp();
-  const [weatherData, setWeatherData] = useState<WeatherData[]>(MOCK_WEATHER);
-  const [dataMode, setDataMode] = useState<"mocked" | "live">("mocked");
+  const {
+    data: weatherData,
+    live: isLive,
+    source,
+    updatedAt,
+    refreshing,
+    refresh,
+  } = useLiveData<WeatherData[]>("/api/weather", MOCK_WEATHER, 600_000);
   const [selectedWeatherId, setSelectedWeatherId] = useState<string>(MOCK_WEATHER[0].id);
-
-  useEffect(() => {
-    async function loadWeather() {
-      try {
-        const res = await fetch("/api/weather");
-        if (res.ok) {
-          const json = await res.json();
-          if (json.weather && json.weather.length > 0) {
-            setWeatherData(json.weather);
-            setSelectedWeatherId(json.weather[0].id);
-            setDataMode(json.live ? "live" : "mocked");
-          }
-        }
-      } catch {
-        // keep mock data
-      }
-    }
-    loadWeather();
-  }, []);
 
   const activeWeather =
     weatherData.find((w) => w.id === selectedWeatherId) || weatherData[0];
@@ -62,9 +51,22 @@ export function WeatherView() {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className={`text-[11px] font-semibold text-slate-400 px-2.5 py-1 rounded bg-slate-900 border border-slate-800`}>
-            Data Source: <strong className={dataMode === "live" ? "text-green-400" : "text-slate-400"}>{dataMode === "live" ? "Live OpenWeatherMap" : "Mocked (Standalone)"}</strong>
+          <span className="text-[11px] font-semibold text-slate-400 px-2.5 py-1 rounded bg-slate-900 border border-slate-800">
+            Data Source:{" "}
+            <strong className={isLive ? "text-green-400" : "text-slate-400"}>
+              {isLive ? "Live Open-Meteo" : "Surveyed Dataset"}
+            </strong>
+            {" · Synced "}
+            <strong className="text-white">{formatSyncClock(updatedAt)}</strong>
           </span>
+          <button
+            onClick={refresh}
+            disabled={refreshing}
+            title="Refresh weather feed (auto-refreshes every 10 minutes)"
+            className="p-1.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:text-sky-400 hover:border-sky-700 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
         </div>
       </div>
 
@@ -216,7 +218,7 @@ export function WeatherView() {
                     <ArrowRight className="w-3 h-3" />
                   </button>
 
-                  <span className="text-[10px] text-slate-500">Updated: 10m ago</span>
+                  <span className="text-[10px] text-slate-500">Updated: {formatSyncClock(updatedAt)}</span>
                 </div>
               </div>
             );

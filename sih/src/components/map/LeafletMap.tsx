@@ -3,8 +3,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import { useApp } from "@/context/AppContext";
-import { Road, Vehicle, Incident, WeatherData } from "@/types";
+import { Road, Vehicle, Incident } from "@/types";
 import { MOCK_BRIDGES } from "@/data/bridges";
+import { MOCK_WEATHER } from "@/data/weather";
+import { useLiveData } from "@/lib/useLiveData";
+import type { Bridge, WeatherData } from "@/types";
 import { Layers, ZoomIn, ZoomOut, Compass, AlertTriangle, Truck } from "lucide-react";
 
 interface LeafletMapProps {
@@ -45,8 +48,13 @@ export default function LeafletMap({
     setActiveTab,
   } = useApp();
 
+  // Live data feeds (polled — /api/bridges every 30s, /api/weather every 10min).
+  const { data: liveBridges } = useLiveData<Bridge[]>("/api/bridges", MOCK_BRIDGES, 30_000);
+  const { data: liveWeather } = useLiveData<WeatherData[]>("/api/weather", MOCK_WEATHER, 600_000);
+
   // Layer Visibility Toggles
   const [layers, setLayers] = useState({
+
     roads: true,
     bridges: true,
     vehicles: true,
@@ -56,20 +64,6 @@ export default function LeafletMap({
   });
 
   const [showLayerMenu, setShowLayerMenu] = useState(false);
-  const [weatherStations, setWeatherStations] = useState<WeatherData[]>([]);
-
-  useEffect(() => {
-    let active = true;
-    void fetch("/api/weather", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) return [];
-        const payload = (await response.json()) as { data?: WeatherData[] };
-        return payload.data || [];
-      })
-      .then((data) => { if (active) setWeatherStations(data); })
-      .catch(() => { if (active) setWeatherStations([]); });
-    return () => { active = false; };
-  }, []);
 
   // Initialize Map
   useEffect(() => {
@@ -192,7 +186,7 @@ export default function LeafletMap({
             <div>Weather: <span class="text-white">${road.weather.split("(")[0]}</span></div>
           </div>
           <div class="p-2 rounded bg-slate-900 border border-slate-700 mb-2.5">
-            <div class="text-[10px] text-sky-400 font-bold uppercase tracking-wider mb-0.5">Operational note</div>
+            <div class="text-[10px] text-sky-400 font-bold uppercase tracking-wider mb-0.5">AI Recommendation</div>
             <div class="text-[11px] text-slate-300 italic">"${road.aiRecommendation}"</div>
           </div>
           <div class="text-[10px] text-slate-500 text-right">Click road to open full panel</div>
@@ -212,19 +206,19 @@ export default function LeafletMap({
 
     if (!layers.bridges) return;
 
-    MOCK_BRIDGES.forEach((bridge) => {
+    liveBridges.forEach((bridge) => {
       const isDamaged = bridge.condition === "damaged" || bridge.condition === "critical";
       const isDue = bridge.condition === "inspection_required";
 
       const iconColor = isDamaged ? "#ef4444" : isDue ? "#f59e0b" : "#10b981";
 
       const customIcon = L.divIcon({
-        className: "ner-map-marker ner-bridge-marker",
+        className: "custom-bridge-icon",
         html: `
-          <div style="background-color: ${iconColor}; width: 18px; height: 18px; border: 2px solid #ffffff; border-radius: 5px; box-shadow: 0 2px 8px rgba(15,23,42,.35);" title="${bridge.name}"></div>
+          <div style="background-color: ${iconColor}; width: 14px; height: 14px; border: 2px solid #ffffff; border-radius: 2px; box-shadow: 0 0 8px rgba(0,0,0,0.6);" title="${bridge.name}"></div>
         `,
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
       });
 
       const marker = L.marker(bridge.coordinates, { icon: customIcon });
@@ -253,7 +247,7 @@ export default function LeafletMap({
       marker.bindPopup(popupHtml);
       group.addLayer(marker);
     });
-  }, [layers.bridges]);
+  }, [layers.bridges, liveBridges]);
 
   // Update Vehicle Markers (Simulated real-time movement)
   useEffect(() => {
@@ -267,13 +261,15 @@ export default function LeafletMap({
       const isDelayed = vehicle.status === "delayed";
       const isStopped = vehicle.status === "stopped";
 
+      const badgeColor = isDelayed ? "bg-amber-500" : isStopped ? "bg-slate-500" : "bg-emerald-500";
+
       const customIcon = L.divIcon({
-        className: "ner-map-marker ner-vehicle-marker",
+        className: "custom-vehicle-marker",
         html: `
           <div style="display: flex; align-items: center; justify-content: center; position: relative;">
-            <div style="background: #ffffff; border: 2px solid ${isDelayed ? '#b45309' : isStopped ? '#64748b' : '#18794e'}; border-radius: 6px; padding: 3px 6px; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 8px rgba(15,23,42,.25);">
-              <span style="width: 7px; height: 7px; border-radius: 50%; background: ${isDelayed ? '#f59e0b' : isStopped ? '#64748b' : '#10b981'};"></span>
-              <span style="color: #0f172a; font-size: 10px; font-weight: 800; letter-spacing: -0.2px;">${vehicle.plateNumber}</span>
+            <div style="background: #0f172a; border: 2px solid ${isDelayed ? '#f59e0b' : '#10b981'}; border-radius: 6px; padding: 2px 5px; display: flex; align-items: center; gap: 3px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
+              <span style="width: 7px; height: 7px; border-radius: 50%;" class="${badgeColor} ${vehicle.status === 'moving' ? 'animate-ping' : ''}"></span>
+              <span style="color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: -0.2px;">${vehicle.plateNumber}</span>
             </div>
           </div>
         `,
@@ -327,12 +323,14 @@ export default function LeafletMap({
       const isCritical = incident.severity === "Critical";
 
       const customIcon = L.divIcon({
-        className: "ner-map-marker ner-incident-marker",
+        className: "custom-incident-marker",
         html: `
           <div style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: ${
             isCritical ? "#ef4444" : "#f97316"
-          }; border: 2px solid #ffffff;">
-            <span style="width: 7px; height: 7px; border-radius: 50%; background: #ffffff;"></span>
+          }; border: 2px solid #ffffff; box-shadow: 0 0 12px ${isCritical ? "rgba(239,68,68,0.8)" : "rgba(249,115,22,0.6)"};" class="${
+            isCritical ? "pulse-beacon" : ""
+          }">
+            <span style="color: #ffffff; font-size: 12px; font-weight: 900;">!</span>
           </div>
         `,
         iconSize: [26, 26],
@@ -359,8 +357,8 @@ export default function LeafletMap({
           <div class="font-semibold text-white text-xs mb-1">${incident.title}</div>
           <div class="text-slate-400 text-[11px] mb-2">📍 ${incident.location}</div>
           <div class="text-[11px] text-slate-300 bg-slate-900/90 p-2 rounded border border-slate-700 mb-2">
-            <div class="text-[10px] text-amber-400 font-bold uppercase mb-0.5">Reported condition</div>
-            <div class="text-slate-300">${incident.cause}</div>
+            <div class="text-[10px] text-amber-400 font-bold uppercase mb-0.5">AI Risk Prediction (${incident.aiProbability}%)</div>
+            <div class="text-slate-300 italic">${incident.aiPredictionText}</div>
           </div>
           <div class="flex items-center justify-between text-[10px] text-slate-400">
             <span>Est. Delay: +${incident.estimatedDelayHours}h</span>
@@ -382,9 +380,9 @@ export default function LeafletMap({
 
     if (!layers.weather) return;
 
-    weatherStations.forEach((wx) => {
+    liveWeather.forEach((wx) => {
       const customIcon = L.divIcon({
-        className: "ner-map-marker ner-weather-marker",
+        className: "custom-weather-marker",
         html: `
           <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid #38bdf8; border-radius: 20px; padding: 2px 7px; display: flex; align-items: center; gap: 4px; box-shadow: 0 4px 8px rgba(0,0,0,0.5);">
             <span style="font-size: 11px;">🌧️</span>
@@ -405,7 +403,10 @@ export default function LeafletMap({
             <div>24h Rain: <span class="text-white font-bold">${wx.rainfall24hMm} mm</span></div>
             <div>Temp: <span class="text-white">${wx.temperatureCelsius}°C</span></div>
             <div>Wind: <span class="text-white">${wx.windSpeedKmh} km/h</span></div>
-            <div>Condition: <span class="text-white">${wx.condition}</span></div>
+            <div>Alert: <span class="text-red-400 font-bold">${wx.severeAlert ? "ACTIVE" : "NONE"}</span></div>
+          </div>
+          <div class="text-[10px] text-slate-400 p-1.5 rounded bg-slate-900 border border-slate-700">
+            <span class="font-semibold text-amber-300">Cascading Risk:</span> ${wx.riskChain.deliveryDelay}
           </div>
         </div>
       `;
@@ -413,7 +414,7 @@ export default function LeafletMap({
       marker.bindPopup(popupHtml);
       group.addLayer(marker);
     });
-  }, [layers.weather, weatherStations]);
+  }, [layers.weather, liveWeather]);
 
   // Update Emergency Deployment Layer
   useEffect(() => {
@@ -435,7 +436,7 @@ export default function LeafletMap({
           : "🚜";
 
       const customIcon = L.divIcon({
-        className: "ner-map-marker ner-emergency-marker",
+        className: "custom-emergency-res",
         html: `
           <div style="background: ${isDeployed ? "#0284c7" : "#0f172a"}; border: 2px solid #38bdf8; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(2,132,199,0.7);" class="${
             isDeployed ? "pulse-green" : ""
@@ -602,7 +603,7 @@ export default function LeafletMap({
           <button
             onClick={handleResetView}
             className="p-2 text-slate-300 hover:text-white hover:bg-slate-800"
-            title="Fit North East region"
+            title="Reset North East View"
           >
             <Compass className="w-4 h-4" />
           </button>

@@ -1,0 +1,10 @@
+import { NextResponse } from "next/server";
+import { MOCK_SHIPMENTS } from "@/data/shipments";
+import { liveBackendCollection } from "@/lib/liveData";
+
+export async function GET() {
+  const live = await liveBackendCollection("/api/shipments");
+  const now = new Date().toISOString();
+  if (live) return NextResponse.json({ data: live, live: true, source: "Fleet backend (live)", updatedAt: now });
+  return NextResponse.json({ data: MOCK_SHIPMENTS, live: false, source: "NER-LIFELINE curated dataset", updatedAt: now });
+}

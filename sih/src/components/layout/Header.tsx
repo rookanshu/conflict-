@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { LanguageCode } from "@/data/translations";
+import { formatSyncClock } from "@/lib/useLiveData";
 import {
   Activity,
   Wifi,
@@ -48,6 +49,8 @@ export function Header() {
     logout,
     setIsLandingPageOpen,
     setIsGoogleMapsOpen,
+    lastDataSync,
+    anyFeedLive,
   } = useApp();
 
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -99,7 +102,13 @@ export function Header() {
                 SIH
               </span>
             </div>
-            <div className="text-[11px] text-slate-400 font-medium">
+            <div className="text-[11px] text-slate-400 font-medium flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1 px-1.5 py-0.1 rounded text-[10px] font-bold border ${anyFeedLive ? "bg-green-950/60 text-green-400 border-green-700" : "bg-slate-800 text-slate-400 border-slate-700"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${anyFeedLive ? "bg-green-400 animate-pulse" : "bg-slate-500"}`} />
+                {anyFeedLive ? "LIVE" : "CURATED"}
+              </span>
+              <span>Synced {formatSyncClock(lastDataSync)}</span>
+
               Regional Operations Command
             </div>
           </div>

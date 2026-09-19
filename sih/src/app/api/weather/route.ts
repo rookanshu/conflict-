@@ -80,7 +80,7 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      weather,
+      data: weather,
       live: true,
       source: "Open-Meteo (live, no key required)",
       updatedAt: new Date().toISOString(),
@@ -88,7 +88,7 @@ export async function GET() {
   } catch {
     // Graceful degradation: serve the curated dataset so the dashboard keeps working offline.
     return NextResponse.json({
-      weather: MOCK_WEATHER,
+      data: MOCK_WEATHER,
       live: false,
       source: "NER-LIFELINE surveyed dataset (Open-Meteo unreachable)",
       updatedAt: new Date().toISOString(),
