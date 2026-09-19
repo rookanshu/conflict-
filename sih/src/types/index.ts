@@ -127,6 +127,13 @@ export interface WeatherData {
   windSpeedKmh: number;
   condition: string;
   severeAlert: boolean;
+  /** Optional legacy enrichment retained for existing non-UI data services. */
+  riskChain?: {
+    rainfall: string;
+    landslideRisk: string;
+    roadAccessibility: string;
+    deliveryDelay: string;
+  };
 }
 
 export interface EmergencyResource {

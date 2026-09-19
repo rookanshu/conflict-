@@ -85,15 +85,16 @@ export interface RouteAlternative {
 
 /** Mirrors `AlternateRouteResponse` in backend/schemas.py */
 export interface AlternateRouteResponse {
+  /** Retained for the target API's live-data indicator. */
+  live?: boolean;
   blocked: boolean;
   blockage_details?: Record<string, unknown> | null;
   primary_route_status: string;
   ai_alternate_route: RouteAlternative;
   comparison?: Record<string, unknown>;
   ai_advisory: string;
-    recommended_action: string;
+  recommended_action: string;
   voice_announcement: string;
-  live?: boolean;
 }
 
 export interface AlternateRouteRequest {

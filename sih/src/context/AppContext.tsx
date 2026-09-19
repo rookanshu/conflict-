@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import {
   User,
   UserRole,
@@ -13,21 +13,12 @@ import {
   EmergencyBroadcast,
   AuditLogEntry,
 } from "@/types";
-import { useAuth, type AuthIdentity } from "@/context/AuthContext";
 import { MOCK_ROADS } from "@/data/roads";
 import { MOCK_VEHICLES } from "@/data/vehicles";
 import { MOCK_SHIPMENTS } from "@/data/shipments";
 import { MOCK_INCIDENTS } from "@/data/incidents";
 import { INITIAL_EMERGENCY_RESOURCES, INITIAL_AUDIT_LOGS, INITIAL_BROADCASTS } from "@/data/emergency";
 import { TRANSLATIONS, LanguageCode, TranslationStrings } from "@/data/translations";
-import { useLiveData } from "@/lib/useLiveData";
-
-/** Polling cadence for the live data layer (ms). */
-const SYNC_ROADS_MS = 30_000;
-const SYNC_VEHICLES_MS = 30_000;
-const SYNC_SHIPMENTS_MS = 30_000;
-const SYNC_INCIDENTS_MS = 30_000;
-const SYNC_RESOURCES_MS = 30_000;
 
 export const DEMO_USERS: Record<UserRole, User> = {
   "Regular User": {
@@ -63,41 +54,6 @@ export const DEMO_USERS: Record<UserRole, User> = {
     isPrivilegedVerified: true,
   },
 };
-
-/**
- * Fallback persona for an anonymous visitor. sih previously booted with a
- * hardcoded "logged in" demo user; the merged app keeps every component's
- * `currentUser` contract intact but reports an explicit guest identity until a
- * session actually exists.
- */
-const GUEST_USER: User = {
-  id: "guest",
-  name: "Guest Operator",
-  organization: "Unauthenticated Session",
-  role: "Regular User",
-  email: "—",
-  isPrivilegedVerified: false,
-};
-
-/** Maps an auth identity onto sih's `User` domain object (single source of truth). */
-function identityToUser(identity: AuthIdentity): User {
-  const persona = DEMO_USERS[identity.role] ?? DEMO_USERS["Regular User"];
-  if (!identity.live) {
-    // Offline demo mode: keep sih's original personas verbatim.
-    return { ...persona, role: identity.role };
-  }
-  return {
-    id: identity.uid,
-    name: identity.displayName,
-    // Firebase carries no organisation claim; the role persona supplies the
-    // realistic departmental label used across the workspace UI.
-    organization: persona.organization,
-    role: identity.role,
-    email: identity.email ?? persona.email,
-    avatarUrl: identity.photoURL ?? undefined,
-    isPrivilegedVerified: identity.role === "Emergency Commander",
-  };
-}
 
 interface NotificationState {
   id: string;
@@ -161,9 +117,6 @@ interface AppContextType {
   shipments: Shipment[];
   incidents: Incident[];
   emergencyResources: EmergencyResource[];
-  lastDataSync: string | null;
-  anyFeedLive: boolean;
-  refreshAll: () => void;
   deployResource: (resourceId: string, routeOrIncident: string) => void;
   emergencyBroadcasts: EmergencyBroadcast[];
   sendBroadcast: (target: string, message: string, priority: "CRITICAL" | "HIGH" | "NORMAL", channels: string[]) => void;
@@ -185,29 +138,11 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  // ── Authentication is owned by AuthContext (Firebase) ──────────────────────
-  // AppContext stays the operational store it always was; it only *derives* the
-  // identity, so every existing `useApp()` consumer keeps working unchanged.
-  const { identity, isDemoMode, signInDemo, changeRole, signOutUser } = useAuth();
-
-  const currentUser: User = useMemo(
-    () => (identity ? identityToUser(identity) : GUEST_USER),
-    [identity]
-  );
-  const isLoggedIn = Boolean(identity);
+  // Demo default user: Regular User (Logistics Operator)
+  const [currentUser, setCurrentUser] = useState<User>(DEMO_USERS["Regular User"]);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
   const [isPrivilegedVerified, setIsPrivilegedVerified] = useState<boolean>(false);
   const [activeEmergencySession, setActiveEmergencySession] = useState<boolean>(false);
-
-  // Privileged flags follow the (restored or freshly signed-in) identity, so a
-  // page reload keeps an Emergency Commander's session state consistent.
-  useEffect(() => {
-    if (!identity) {
-      setIsPrivilegedVerified(false);
-      setActiveEmergencySession(false);
-      return;
-    }
-    setIsPrivilegedVerified(identity.role === "Emergency Commander");
-  }, [identity]);
 
   // Navigation
   const [activeTab, setActiveTab] = useState<string>("overview");
@@ -228,52 +163,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
 
-  // Operational State — hydrated from the live API layer (see polls below).
-  // Local mutations (GPS smoothing, reported incidents, dispatches) are kept as
-  // overlays so a poll never clobbers officer input.
-  const serverRoads = useLiveData<Road[]>("/api/roads", MOCK_ROADS, SYNC_ROADS_MS);
-  const serverShipments = useLiveData<Shipment[]>("/api/shipments", MOCK_SHIPMENTS, SYNC_SHIPMENTS_MS);
-  const serverIncidents = useLiveData<Incident[]>("/api/incidents", MOCK_INCIDENTS, SYNC_INCIDENTS_MS);
-  const serverResources = useLiveData<EmergencyResource[]>(
-    "/api/emergency/resources", INITIAL_EMERGENCY_RESOURCES, SYNC_RESOURCES_MS
-  );
-  const serverFleet = useLiveData<Vehicle[]>("/api/fleet", MOCK_VEHICLES, SYNC_VEHICLES_MS);
-
-  const [localIncidents, setLocalIncidents] = useState<Incident[]>([]);
-  const [resourceOverrides, setResourceOverrides] = useState<Record<string, EmergencyResource>>({});
-
-  const roads = serverRoads.data;
-  const shipments = serverShipments.data;
-  const incidents = useMemo(() => [...localIncidents, ...serverIncidents.data], [localIncidents, serverIncidents.data]);
-  const emergencyResources = useMemo(
-    () => serverResources.data.map((r) => resourceOverrides[r.id] ?? r),
-    [serverResources.data, resourceOverrides]
-  );
-
-  // Vehicles: working copy seeded from the API poll; the GPS-smoothing tick
-  // below animates it between polls.
+  // Operational State
+  const [roads] = useState<Road[]>(MOCK_ROADS);
   const [vehicles, setVehicles] = useState<Vehicle[]>(MOCK_VEHICLES);
+  const [shipments] = useState<Shipment[]>(MOCK_SHIPMENTS);
+  const [incidents, setIncidents] = useState<Incident[]>(MOCK_INCIDENTS);
+  const [emergencyResources, setEmergencyResources] = useState<EmergencyResource[]>(INITIAL_EMERGENCY_RESOURCES);
   const [emergencyBroadcasts, setEmergencyBroadcasts] = useState<EmergencyBroadcast[]>(INITIAL_BROADCASTS);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(INITIAL_AUDIT_LOGS);
-
-  // Adopt the polled fleet whenever a fresh snapshot lands.
-  useEffect(() => {
-    if (Array.isArray(serverFleet.data) && serverFleet.data.length > 0) {
-      setVehicles(serverFleet.data);
-    }
-  }, [serverFleet.data]);
-
-  /** Most recent successful server sync across all polled feeds. */
-  const lastDataSync = useMemo(() => {
-    const stamps = [
-      serverRoads.updatedAt, serverFleet.updatedAt, serverShipments.updatedAt,
-      serverIncidents.updatedAt, serverResources.updatedAt,
-    ].filter((s): s is string => !!s);
-    if (stamps.length === 0) return null;
-    return stamps.sort().reverse()[0];
-  }, [serverRoads.updatedAt, serverFleet.updatedAt, serverShipments.updatedAt, serverIncidents.updatedAt, serverResources.updatedAt]);
-
-  const anyFeedLive = serverRoads.live || serverFleet.live || serverShipments.live || serverIncidents.live || serverResources.live;
 
   // Offline Mode & Field Reports
   // Keep the initial SSR/client render identical; the effect below resolves real connectivity.
@@ -369,38 +266,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setNotification(null);
   };
 
-  /**
-   * Role selection / persona login, kept as the single entry point used by the
-   * Login modal, the Analytics upgrade prompt and the Profile view.
-   *  • Offline demo mode  → signs in as the selected static persona.
-   *  • Live Firebase mode → switches the operational role for the session
-   *    (rejected when a directory custom claim pins the role).
-   */
   const login = (role: UserRole) => {
-    const result = isDemoMode ? signInDemo(role) : changeRole(role);
-
-    if (!result.success) {
-      showNotification(
-        isDemoMode ? "Authentication Failed" : "Role Change Blocked",
-        result.error ?? "The requested session could not be established.",
-        isDemoMode ? "error" : "warning"
-      );
-      return;
-    }
-
     const user = DEMO_USERS[role];
+    setCurrentUser(user);
+    setIsLoggedIn(true);
+    setIsPrivilegedVerified(user.isPrivilegedVerified);
     setActiveEmergencySession(user.isPrivilegedVerified && role === "Emergency Commander");
     showNotification(
       "Authenticated",
-      isDemoMode
-        ? `Logged in as ${user.name} (${role}) — ${user.organization}`
-        : `Session role set to ${role}${identity?.email ? ` — ${identity.email}` : ""}`,
+      `Logged in as ${user.name} (${role}) — ${user.organization}`,
       "success"
     );
   };
 
   const logout = () => {
-    void signOutUser();
+    setIsLoggedIn(false);
+    setIsPrivilegedVerified(false);
+    setActiveEmergencySession(false);
     showNotification("Signed Out", "Platform session closed.", "info");
   };
 
@@ -442,27 +324,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMapFocus({ lat, lng, zoom, label });
   };
 
-  /** Force an immediate re-sync of every polled feed. */
-  const refreshAll = () => {
-    serverRoads.refresh();
-    serverFleet.refresh();
-    serverShipments.refresh();
-    serverIncidents.refresh();
-    serverResources.refresh();
-    showNotification("Synchronizing", "Refreshing all live data feeds…", "info");
-  };
-
   const deployResource = (resourceId: string, routeOrIncident: string) => {
-    const target = emergencyResources.find((r) => r.id === resourceId);
-    if (target) {
-      const deployed: EmergencyResource = {
-        ...target,
-        status: "Deployed",
-        assignedRoute: routeOrIncident,
-      };
-      // Overlay the dispatch so a background poll never clobbers officer input.
-      setResourceOverrides((prev) => ({ ...prev, [resourceId]: deployed }));
-    }
+    setEmergencyResources((prev) =>
+      prev.map((r) =>
+        r.id === resourceId
+          ? {
+              ...r,
+              status: "Deployed",
+              assignedRoute: routeOrIncident,
+            }
+          : r
+      )
+    );
 
     const resource = emergencyResources.find((r) => r.id === resourceId);
     const newAudit: AuditLogEntry = {
@@ -559,7 +432,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         resolved: false,
         reportedBy: currentUser.name,
       };
-      setLocalIncidents((prev) => [newIncident, ...prev]);
+      setIncidents((prev) => [newIncident, ...prev]);
 
       showNotification(
         "Incident Report Submitted",
@@ -661,9 +534,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         shipments,
         incidents,
         emergencyResources,
-        lastDataSync,
-        anyFeedLive,
-        refreshAll,
         deployResource,
         emergencyBroadcasts,
         sendBroadcast,

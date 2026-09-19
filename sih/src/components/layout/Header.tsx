@@ -1,362 +1,47 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
+import { ChevronDown, CircleUserRound, LogIn, LogOut, MapPin, Sparkles, Wifi, WifiOff } from "lucide-react";
 import { useApp } from "@/context/AppContext";
-import { useAuth } from "@/context/AuthContext";
-import { useTheme } from "@/context/ThemeContext";
-import { LanguageCode } from "@/data/translations";
-import { formatSyncClock } from "@/lib/useLiveData";
-import {
-  Activity,
-  Wifi,
-  WifiOff,
-  Car,
-  Bot,
-  Globe,
-  User,
-  Shield,
-  ShieldAlert,
-  LogOut,
-  LogIn,
-  ChevronDown,
-  Sparkles,
-  Layers,
-  FileSpreadsheet,
-  MapPin,
-  Sun,
-  Moon,
-  AlertTriangle,
-  X,
-} from "lucide-react";
+
+const navigation = [
+  ["overview", "Overview"], ["map", "Live map"], ["routes", "Routes"], ["vehicles", "Vehicles"],
+  ["shipments", "Shipments"], ["accessibility", "Access"], ["weather", "Weather"], ["alerts", "Alerts"],
+  ["field-reports", "Live report"],
+] as const;
 
 export function Header() {
-  const { isDark, toggleTheme } = useTheme();
-  const { identity, status, isDemoMode, authNotice, clearAuthNotice } = useAuth();
-  const {
-    currentUser,
-    isPrivilegedVerified,
-    activeEmergencySession,
-    isOffline,
-    setIsOffline,
-    pendingOfflineCount,
-    language,
-    setLanguage,
-    t,
-    setIsAiCopilotOpen,
-    setIsDriverHudOpen,
-    setIsLoginModalOpen,
-    setIsVerificationModalOpen,
-    logout,
-    setIsLandingPageOpen,
-    setIsGoogleMapsOpen,
-    lastDataSync,
-    anyFeedLive,
-  } = useApp();
-
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showLangMenu, setShowLangMenu] = useState(false);
-
-  const languages: { code: LanguageCode; label: string; script: string }[] = [
-    { code: "en", label: "English", script: "English" },
-    { code: "hi", label: "Hindi", script: "हिन्दी" },
-    { code: "as", label: "Assamese", script: "অসমীয়া" },
-    { code: "bn", label: "Bengali", script: "বাংলা" },
-    { code: "mn", label: "Manipuri", script: "মণিপুরী" },
-  ];
+  const { activeTab, setActiveTab, currentUser, isLoggedIn, isOffline, setIsLoginModalOpen, setIsAiCopilotOpen, setIsGoogleMapsOpen, logout } = useApp();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <>
-      {/* Session notice (expired / policy) — dismissible, non-blocking */}
-      {authNotice && (
-        <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2 bg-amber-950/90 border-b border-amber-700 text-[11px] text-amber-200 z-30">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <span>{authNotice}</span>
+    <header className="app-header sticky top-0 z-30 border-b border-slate-700 bg-[#172033] text-white">
+      <div className="mx-auto flex h-[72px] max-w-[1600px] items-center gap-6 px-5 lg:px-8">
+        <button onClick={() => setActiveTab("overview")} className="ner-brand flex shrink-0 items-center gap-3 text-left" aria-label="Go to overview">
+          <span className="ner-brand-mark"><span>NER</span><i /><i /><i /></span>
+          <span className="hidden sm:block"><span className="block text-sm font-bold tracking-tight">NER Logistics</span><span className="block text-[11px] text-slate-400">North East regional operations</span></span>
+        </button>
+
+        <nav aria-label="Primary navigation" className="hidden min-w-0 flex-1 items-center justify-center gap-1 lg:flex">
+          {navigation.map(([id, label]) => <button key={id} onClick={() => setActiveTab(id)} className={`rounded-md px-3 py-2 text-[12px] font-semibold transition-colors ${activeTab === id ? id === "field-reports" ? "bg-amber-500 text-slate-950" : "bg-white text-[#172033]" : id === "field-reports" ? "text-amber-300 hover:bg-amber-400/10" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}>{label}</button>)}
+        </nav>
+
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          <span aria-label={isOffline ? "Network unavailable" : "Network available"} title={isOffline ? "Network unavailable" : "Network available"} className={`grid h-9 w-9 place-items-center rounded-md border ${isOffline ? "border-amber-500/50 bg-amber-500/10 text-amber-200" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"}`}>{isOffline ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4" />}</span>
+          <div className="relative">
+            <button onClick={() => isLoggedIn ? setMenuOpen(!menuOpen) : setIsLoginModalOpen(true)} className="flex items-center gap-2 rounded-md border border-slate-600 px-2.5 py-2 text-xs font-semibold hover:bg-white/10">
+              {isLoggedIn ? <><span className="grid h-5 w-5 place-items-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-900">{currentUser.name.charAt(0)}</span><span className="hidden xl:inline">{currentUser.name.split(" ")[0]}</span><ChevronDown className="h-3.5 w-3.5 text-slate-400" /></> : <><LogIn className="h-3.5 w-3.5" /> Login</>}
+            </button>
+            {menuOpen && isLoggedIn && <div className="absolute right-0 mt-2 w-60 rounded-lg border border-slate-200 bg-white p-2 text-slate-800 shadow-lg">
+              <div className="border-b border-slate-100 px-3 py-2"><p className="font-semibold">{currentUser.name}</p><p className="mt-0.5 text-[11px] text-slate-500">{currentUser.organization}</p></div>
+              <button onClick={() => { setActiveTab("profile"); setMenuOpen(false); }} className="mt-1 flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs hover:bg-slate-50"><CircleUserRound className="h-3.5 w-3.5" /> Profile</button>
+              <button onClick={() => { setIsGoogleMapsOpen(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs hover:bg-slate-50"><MapPin className="h-3.5 w-3.5" /> Nearby services</button>
+              <button onClick={() => { setIsAiCopilotOpen(true); setMenuOpen(false); }} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs hover:bg-slate-50"><Sparkles className="h-3.5 w-3.5" /> Ask for help</button>
+              <button onClick={() => { logout(); setMenuOpen(false); setIsLoginModalOpen(true); }} className="mt-1 flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs text-red-700 hover:bg-red-50"><LogOut className="h-3.5 w-3.5" /> Sign out</button>
+            </div>}
           </div>
-          <button
-            onClick={clearAuthNotice}
-            className="p-1 rounded hover:bg-black/30 shrink-0"
-            aria-label="Dismiss session notice"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-      <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-3 sm:px-5 bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md">
-      {/* Left: Branding & Status Indicator */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => setIsLandingPageOpen(true)}
-          className="flex items-center gap-2 text-left group focus:outline-none"
-          title="Open Landing Overview"
-        >
-          <div className="w-8 h-8 rounded bg-sky-600 flex items-center justify-center text-white font-black text-sm shadow-md group-hover:bg-sky-500 transition-colors">
-            NER
-          </div>
-          <div className="hidden sm:block">
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-sm tracking-tight text-white group-hover:text-sky-400 transition-colors">
-                NER LOGISTICS INTELLIGENCE
-              </span>
-              <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 bg-slate-800 text-sky-400 rounded border border-slate-700">
-                SIH
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-400 font-medium flex items-center gap-2">
-              <span className={`inline-flex items-center gap-1 px-1.5 py-0.1 rounded text-[10px] font-bold border ${anyFeedLive ? "bg-green-950/60 text-green-400 border-green-700" : "bg-slate-800 text-slate-400 border-slate-700"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${anyFeedLive ? "bg-green-400 animate-pulse" : "bg-slate-500"}`} />
-                {anyFeedLive ? "LIVE" : "CURATED"}
-              </span>
-              <span>Synced {formatSyncClock(lastDataSync)}</span>
-
-              Regional Operations Command
-            </div>
-          </div>
-        </button>
-
-        {/* System Status */}
-        <div className="hidden md:flex items-center gap-1.5 pl-3 border-l border-slate-800 text-xs">
-          <span className="flex h-2 w-2 relative">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-          </span>
-          <span className="text-slate-400 font-medium text-[11px]">System Status:</span>
-          <span className="text-emerald-400 font-bold text-[11px]">● OPERATIONAL</span>
-        </div>
-
-        {/* Emergency Active Banner */}
-        {activeEmergencySession && (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-950/90 border border-red-600 text-red-300 text-xs font-bold animate-pulse">
-            <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
-            <span className="hidden sm:inline">EMERGENCY OPS ACTIVE</span>
-            <span className="sm:hidden">EMERGENCY</span>
-          </div>
-        )}
-      </div>
-
-      {/* Right Action Tools */}
-      <div className="flex items-center gap-2 sm:gap-2.5">
-        {/* Offline / Online Toggle */}
-        <button
-          onClick={() => setIsOffline(!isOffline)}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
-            isOffline
-              ? "bg-amber-950/80 border-amber-600 text-amber-300 hover:bg-amber-900/80"
-              : "bg-slate-900 border-slate-700/80 text-slate-300 hover:bg-slate-800"
-          }`}
-          title={isOffline ? "Currently working offline. Click to reconnect." : "Working online. Click to simulate offline mode."}
-        >
-          {isOffline ? (
-            <>
-              <WifiOff className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden md:inline">Offline</span>
-              {pendingOfflineCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 text-[10px] font-bold">
-                  {pendingOfflineCount}
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden md:inline text-slate-300">Online</span>
-            </>
-          )}
-        </button>
-
-        {/* Car / In-Cab HUD Mode Toggle */}
-        <button
-          onClick={() => setIsDriverHudOpen(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-slate-900 border border-slate-700/80 text-slate-200 hover:bg-slate-800 hover:text-white transition-colors"
-          title="Launch Driver HUD / Car Screen Mode"
-        >
-          <Car className="w-3.5 h-3.5 text-amber-400" />
-          <span className="hidden lg:inline">Car HUD</span>
-        </button>
-
-        {/* Google Maps Amenities Search Button */}
-        <button
-          onClick={() => setIsGoogleMapsOpen(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold bg-emerald-950/80 border border-emerald-600/70 text-emerald-300 hover:bg-emerald-900/80 transition-colors shadow-sm cursor-pointer"
-          title="Search Google Maps Amenities: Coffee, Fuel & Checkpoints (SerpApi Engine)"
-        >
-          <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="hidden md:inline">Google Maps Places</span>
-        </button>
-
-        {/* AI Copilot Button */}
-        <button
-          onClick={() => setIsAiCopilotOpen(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold bg-sky-950/80 border border-sky-600/70 text-sky-300 hover:bg-sky-900/80 transition-colors shadow-sm"
-          title="Open AI Logistics Intelligence Copilot"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
-          <span className="hidden sm:inline">NER Intelligence</span>
-        </button>
-
-        {/* Language Selector */}
-        <div className="relative">
-          <button
-            onClick={() => setShowLangMenu(!showLangMenu)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800"
-            title="Switch Language"
-          >
-            <Globe className="w-3.5 h-3.5 text-slate-400" />
-            <span className="uppercase text-[11px] font-bold">{language}</span>
-            <ChevronDown className="w-3 h-3 text-slate-500" />
-          </button>
-
-          {showLangMenu && (
-            <div className="absolute right-0 mt-1 w-36 py-1 bg-slate-900 border border-slate-700 rounded-md shadow-xl z-50 text-xs">
-              {languages.map((lang) => (
-                <button
-                  key={lang.code}
-                  onClick={() => {
-                    setLanguage(lang.code);
-                    setShowLangMenu(false);
-                  }}
-                  className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-slate-800 ${
-                    language === lang.code ? "text-sky-400 font-bold bg-slate-800/50" : "text-slate-300"
-                  }`}
-                >
-                  <span>{lang.label}</span>
-                  <span className="text-[10px] text-slate-500">{lang.script}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Theme Toggle Button */}
-        <button
-          onClick={toggleTheme}
-          className="p-1.5 rounded-md transition-colors cursor-pointer text-slate-400 hover:text-amber-300 hover:bg-slate-900 border border-slate-800"
-          title={isDark ? "Switch to Light Mode" : "Switch to Tactical Dark Mode"}
-          aria-label="Toggle visual theme"
-        >
-          {isDark ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-indigo-400" />}
-        </button>
-
-        {/* User Account / Role Menu */}
-        <div className="relative">
-          <button
-            onClick={() => {
-              if (!identity) {
-                setIsLoginModalOpen(true);
-                return;
-              }
-              setShowUserMenu(!showUserMenu);
-            }}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200"
-            title={identity ? "Account & session" : "Sign in"}
-          >
-            {identity?.photoURL ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={identity.photoURL}
-                alt=""
-                className="w-5 h-5 rounded-full object-cover border border-slate-600"
-              />
-            ) : (
-              <div className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-[10px] font-bold text-white">
-                {identity ? currentUser.name.charAt(0) : <LogIn className="w-3 h-3" />}
-              </div>
-            )}
-            <span className="hidden sm:inline max-w-[100px] truncate text-slate-200 text-[11px]">
-              {identity ? currentUser.name.split(" ")[0] : "Sign In"}
-            </span>
-            {identity && <ChevronDown className="w-3 h-3 text-slate-500" />}
-            {status === "restoring" && (
-              <span className="hidden md:inline text-[10px] text-slate-500">restoring…</span>
-            )}
-          </button>
-
-          {showUserMenu && (
-            <div className="absolute right-0 mt-1 w-64 p-3 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-50 text-xs">
-              <div className="pb-2 border-b border-slate-800">
-                <div className="font-bold text-white truncate">
-                  {identity ? currentUser.name : "Not signed in"}
-                </div>
-                <div className="text-[11px] text-slate-400 truncate">
-                  {identity ? (identity.email ?? currentUser.organization) : "Public monitor mode"}
-                </div>
-                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-700">
-                    {identity ? identity.role : "Guest"}
-                  </span>
-                  {identity &&
-                    (isPrivilegedVerified ? (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 flex items-center gap-1">
-                        <Shield className="w-2.5 h-2.5" /> Verified
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-                        Standard
-                      </span>
-                    ))}
-                  {identity && (
-                    <span
-                      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
-                        identity.live
-                          ? "bg-emerald-950/70 text-emerald-300 border-emerald-800"
-                          : "bg-amber-950/70 text-amber-300 border-amber-800"
-                      }`}
-                      title={
-                        identity.live
-                          ? "Authenticated with Firebase"
-                          : "Offline demo persona (Firebase not configured)"
-                      }
-                    >
-                      {identity.live ? "LIVE AUTH" : "DEMO"}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="pt-2 flex flex-col gap-1">
-                {identity && !isPrivilegedVerified && (
-                  <button
-                    onClick={() => {
-                      setShowUserMenu(false);
-                      setIsVerificationModalOpen(true);
-                    }}
-                    className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-800 text-amber-400 font-semibold flex items-center gap-2"
-                  >
-                    <ShieldAlert className="w-3.5 h-3.5" />
-                    <span>Verify Privileged Identity</span>
-                  </button>
-                )}
-
-                <button
-                  onClick={() => {
-                    setShowUserMenu(false);
-                    setIsLoginModalOpen(true);
-                  }}
-                  className="w-full text-left px-2 py-1.5 rounded hover:bg-slate-800 text-slate-300 flex items-center gap-2"
-                >
-                  <User className="w-3.5 h-3.5" />
-                  <span>{isDemoMode ? "Switch Demo User" : "Switch Operational Role"}</span>
-                </button>
-
-                {identity && (
-                  <button
-                    onClick={() => {
-                      setShowUserMenu(false);
-                      logout();
-                    }}
-                    className="w-full text-left px-2 py-1.5 rounded hover:bg-red-950/50 text-red-400 flex items-center gap-2 mt-1 border-t border-slate-800 pt-2"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
-      </header>
-    </>
+    </header>
   );
 }

@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { Road, Bridge } from "@/types";
 import { MOCK_BRIDGES } from "@/data/bridges";
-import { useLiveData } from "@/lib/useLiveData";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import {
   Activity,
@@ -19,9 +18,6 @@ import {
 } from "lucide-react";
 
 export function AccessibilityView() {
-
-  const { data: bridges, live: bridgesLive, updatedAt: bridgesSyncedAt } =
-    useLiveData<Bridge[]>("/api/bridges", MOCK_BRIDGES, 30_000);
   const { roads, focusOnLocation, setSelectedRoad, setActiveTab } = useApp();
 
   const [activeTabSub, setActiveTabSub] = useState<"roads" | "bridges">("roads");
@@ -38,7 +34,7 @@ export function AccessibilityView() {
     return matchesSearch && matchesState;
   });
 
-  const filteredBridges = bridges.filter((b) => {
+  const filteredBridges = MOCK_BRIDGES.filter((b) => {
     const matchesSearch =
       b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       b.river.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -83,7 +79,7 @@ export function AccessibilityView() {
                 : "text-slate-400 hover:text-white"
             }`}
           >
-            Bridges & Crossings ({bridges.length})
+            Bridges & Crossings ({MOCK_BRIDGES.length})
           </button>
         </div>
       </div>
